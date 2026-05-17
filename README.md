@@ -4,7 +4,9 @@ A modular Python model for estimating gas-phase high-harmonic generation (HHG) i
 
 ## What this repository does
 
-This code estimates harmonic yield, per-harmonic pulse energy, and photons per pulse for odd harmonics between configurable orders (default 11 to 51). It is designed as a physically interpretable surrogate model for:
+This code estimates harmonic yield, per-harmonic pulse energy, and photons per pulse for odd harmonics between configurable orders, by default from the 11th to the 51st harmonic.
+
+It is designed as a physically interpretable surrogate model for:
 
 - gas-phase HHG in Ar,
 - parameter scans over laser and gas conditions,
@@ -15,74 +17,79 @@ The implementation lives in `HHG.py` and is structured around dataclasses plus h
 
 ## Scientific model
 
-The code uses a reduced cylindrical model in coordinates \((r,z,t)\), assuming axial symmetry.
+The code uses a reduced cylindrical model in coordinates `(r, z, t)`, assuming axial symmetry.
 
 ### 1. Driving laser
 
-The driver is not numerically propagated through the medium. Instead, it is prescribed as a Gaussian beam in space and a Gaussian pulse in time:
+The driver is not numerically propagated through the medium. Instead, it is prescribed as a Gaussian beam in space and a Gaussian pulse in time.
 
-\[
-I(r,t;z) = I_0 \left(\frac{w_0}{w(z)}\right)^2 \exp\!\left(-\frac{2r^2}{w(z)^2}\right) \exp\!\left(-4\ln 2\, \frac{t^2}{\tau_{\mathrm{FWHM}}^2}\right)
-\]
+The local driving intensity is modeled as:
 
-with
+`I(r, t; z) = I0 * (w0 / w(z))^2 * exp(-2 r^2 / w(z)^2) * exp(-4 ln(2) * t^2 / tau_FWHM^2)`
 
-\[
-w(z) = w_0 \sqrt{1 + (z/z_R)^2}, \qquad z_R = \pi w_0^2/\lambda_0.
-\]
+with:
 
-This captures focusing, transverse intensity variation, and pulse duration, but not self-focusing, plasma defocusing, reshaping, or depletion of the fundamental field.
+- `w(z) = w0 * sqrt(1 + (z / zR)^2)`
+- `zR = pi * w0^2 / lambda0`
+
+This captures:
+
+- focusing,
+- transverse intensity variation,
+- pulse duration.
+
+It does **not** include:
+
+- self-focusing,
+- plasma defocusing,
+- reshaping of the fundamental,
+- depletion of the driver.
 
 ### 2. Pulse energy, peak power, and peak intensity
 
-The peak intensity is derived from average power and repetition rate rather than hardcoded:
+The peak intensity is derived from average power and repetition rate rather than hardcoded.
 
-\[
-E_{\mathrm{pulse}} = \frac{P_{\mathrm{avg}}}{f_{\mathrm{rep}}}
-\]
+Pulse energy:
+
+`E_pulse = P_avg / f_rep`
 
 For a Gaussian temporal envelope:
 
-\[
-P_{\mathrm{peak}} = \frac{E_{\mathrm{pulse}}}{\tau_{\mathrm{FWHM}}\sqrt{\pi/(4\ln 2)}}
-\]
+`P_peak = E_pulse / (tau_FWHM * sqrt(pi / (4 ln(2))))`
 
 For a Gaussian spatial beam:
 
-\[
-I_0 = \frac{2P_{\mathrm{peak}}}{\pi w_0^2}.
-\]
+`I0 = 2 * P_peak / (pi * w0^2)`
 
-This makes the model convenient for experimental users who know average power, repetition rate, pulse duration, and focused waist.
+This is convenient for experimental users who know:
+
+- average power,
+- repetition rate,
+- pulse duration,
+- focused waist.
 
 ### 3. Gas density
 
 The neutral argon density is estimated from the ideal gas law:
 
-\[
-N_0 = \frac{P}{k_B T}.
-\]
+`N0 = P / (kB * T)`
 
 Along the propagation axis the code supports:
 
-- top-hat jet profile,
-- Gaussian gas profile.
+- a top-hat gas profile,
+- a Gaussian gas profile.
 
-This gives a spatially varying source density along \(z\).
+This gives a spatially varying source density along `z`.
 
 ### 4. Cutoff estimate
 
 The code uses the standard semiclassical cutoff law:
 
-\[
-E_{\mathrm{cut}} = I_p + 3.17 U_p
-\]
+`E_cut = I_p + 3.17 * U_p`
 
-with the ponderomotive energy approximated as
+with ponderomotive energy approximated by:
 
-\[
-U_p[\mathrm{eV}] \approx 9.337\times 10^{-14} \, I[\mathrm{W/cm^2}] \, \lambda[\mu\mathrm{m}]^2.
-\]
+`U_p [eV] ~= 9.337e-14 * I[W/cm^2] * lambda[um]^2`
 
 This cutoff is used only as a guide and to apply a soft spectral rolloff in the surrogate dipole model.
 
@@ -90,15 +97,11 @@ This cutoff is used only as a guide and to apply a soft spectral rolloff in the 
 
 Ionization is currently modeled with a surrogate saturation law:
 
-\[
-\eta(I) = \min\left[\left(\frac{I}{I_{\mathrm{sat}}}\right)^\gamma, \, \eta_{\max}\right].
-\]
+`eta(I) = min((I / I_sat)^gamma, eta_max)`
 
 The neutral fraction entering the HHG source is:
 
-\[
-N_{\mathrm{neutral}} = N_0 (1-\eta).
-\]
+`N_neutral = N0 * (1 - eta)`
 
 This captures the qualitative fact that increasing intensity eventually depletes neutrals and suppresses efficient generation, but it is not a microscopic tunnel-ionization model such as ADK or PPT.
 
@@ -106,15 +109,13 @@ This captures the qualitative fact that increasing intensity eventually depletes
 
 The code does not solve the TDSE or Lewenstein integral. Instead it uses a phenomenological dipole amplitude of the form:
 
-\[
-A_q(I,\eta) \propto I^{p_q} \exp(-\beta \eta) \times R_q
-\]
+`A_q(I, eta) ~ I^(p_q) * exp(-beta * eta) * R_q`
 
 where:
 
-- \(p_q\) increases mildly with harmonic order,
-- \(\exp(-\beta\eta)\) suppresses emission at high ionization,
-- \(R_q\) is a soft rolloff near the semiclassical cutoff.
+- `p_q` increases mildly with harmonic order,
+- `exp(-beta * eta)` suppresses emission at high ionization,
+- `R_q` is a soft rolloff near the semiclassical cutoff.
 
 This is useful for scans and trend analysis, but it is not an ab initio single-atom response.
 
@@ -124,11 +125,11 @@ The source includes separate short- and long-trajectory contributions.
 
 The dipole phase is modeled as:
 
-\[
-\phi_{\mathrm{dip}} = \alpha_q I.
-\]
+`phi_dip = alpha_q * I`
 
-The phase coefficient \(\alpha_q\) is scaled with harmonic order and chosen separately for short and long trajectories. The full source phase also includes:
+The phase coefficient `alpha_q` is scaled with harmonic order and chosen separately for short and long trajectories.
+
+The full source phase also includes:
 
 - Gouy phase,
 - wavefront curvature phase,
@@ -136,21 +137,20 @@ The phase coefficient \(\alpha_q\) is scaled with harmonic order and chosen sepa
 
 The local source term is built schematically as:
 
-\[
-P_q \propto N_{\mathrm{neutral}} A_q \left(e^{i\phi_s} + w_l e^{i\phi_l}\right)
-\]
+`P_q ~ N_neutral * A_q * (exp(i * phi_short) + w_long * exp(i * phi_long))`
 
-where \(\phi_s\) and \(\phi_l\) are short- and long-trajectory phases.
+where:
 
-This is one of the strongest features of the code, because it lets the model express physically meaningful spatial and phase-structure effects rather than using only scalar conversion efficiency.
+- `phi_short` is the short-trajectory phase,
+- `phi_long` is the long-trajectory phase.
+
+This is one of the strongest features of the code, because it lets the model express physically meaningful spatial and phase-structure effects rather than using only a scalar conversion efficiency.
 
 ### 8. Macroscopic buildup
 
 For each harmonic order, the exit-plane field is assembled by coherent integration over the gas target:
 
-\[
-E_q(r,t) \propto \int P_q(r,z,t) \, e^{-\frac{z_{\mathrm{exit}}-z}{2L_{\mathrm{abs},q}}} \, dz.
-\]
+`E_q(r, t) ~ integral[ P_q(r, z, t) * exp(-(z_exit - z) / (2 * L_abs_q)) dz ]`
 
 This means the model includes:
 
@@ -162,11 +162,9 @@ However, it does **not** solve a paraxial propagation equation for the generated
 
 ### 9. Absorption
 
-Absorption is included through an effective absorption length:
+Absorption is included through an effective absorption factor:
 
-\[
-\exp\left[-\frac{z_{\mathrm{exit}}-z}{2L_{\mathrm{abs},q}}\right].
-\]
+`exp(-(z_exit - z) / (2 * L_abs_q))`
 
 The current implementation uses a power-law scaling of absorption length with harmonic order rather than tabulated argon photoabsorption data.
 
@@ -174,21 +172,15 @@ The current implementation uses a power-law scaling of absorption length with ha
 
 The field integration produces a dimensionless surrogate yield:
 
-\[
-Y_q = \int \! \int |E_q(r,t)|^2 \, 2\pi r\, dr\, dt.
-\]
+`Y_q = integral integral |E_q(r, t)|^2 * 2 pi r dr dt`
 
 That surrogate is mapped to physical harmonic pulse energy using a calibration constant:
 
-\[
-U_q = s\, Y_q\, E_{\mathrm{pulse}}.
-\]
+`U_q = scale * Y_q * E_pulse`
 
-Then photons per pulse are estimated via
+Then photons per pulse are estimated via:
 
-\[
-N_q = \frac{U_q}{\hbar q \omega_0}.
-\]
+`N_q = U_q / (hbar * q * omega0)`
 
 This is a practical engineering step, but it is also the main empirical normalization in the repository.
 
@@ -244,12 +236,12 @@ That makes it a good starting point for a later TDCM throughput model.
 The model does not compute the microscopic dipole from:
 
 - TDSE,
-- SFA/Lewenstein,
+- SFA / Lewenstein,
 - quantitative rescattering theory.
 
 Instead it uses a phenomenological amplitude and phase law. This is fine for trends, but not for predictive spectroscopy.
 
-### Ionization is not ADK/PPT
+### Ionization is not ADK / PPT
 
 The ionization model is an intensity-based saturation proxy. It does not correctly capture:
 
@@ -272,17 +264,15 @@ These effects can matter strongly near optimal phase-matching conditions.
 
 ### No explicit phase-mismatch decomposition
 
-The code includes phase effects implicitly through Gouy, curvature, and dipole phase, but it does not explicitly solve for
+The code includes phase effects implicitly through Gouy, curvature, and dipole phase, but it does not explicitly solve:
 
-\[
-\Delta k = \Delta k_{\mathrm{neutral}} + \Delta k_{\mathrm{plasma}} + \Delta k_{\mathrm{geo}} + \Delta k_{\mathrm{dipole}}.
-\]
+`Delta k = Delta k_neutral + Delta k_plasma + Delta k_geo + Delta k_dipole`
 
 As a result, it is not yet a true phase-matching model in the strict macroscopic HHG sense.
 
 ### No XUV paraxial propagation
 
-The model integrates a source to an exit plane but does not solve propagation of the harmonic envelope in \(z\) with diffraction. Therefore:
+The model integrates a source to an exit plane but does not solve propagation of the harmonic envelope in `z` with diffraction. Therefore:
 
 - far-field divergence is only indirect,
 - wavefront evolution is incomplete,
@@ -318,7 +308,7 @@ If the goal is realistic source estimation before modeling a TDCM monochromator,
    Replace the power-law absorption length with energy-dependent Ar photoabsorption.
 
 3. **Add explicit phase-mismatch terms**  
-   Introduce neutral, plasma, geometric, and dipole contributions to \(\Delta k\).
+   Introduce neutral, plasma, geometric, and dipole contributions to `Delta k`.
 
 4. **Add XUV far-field propagation**  
    Compute divergence, source size, and acceptance into downstream optics.
@@ -326,7 +316,7 @@ If the goal is realistic source estimation before modeling a TDCM monochromator,
 5. **Optionally propagate the fundamental self-consistently**  
    Needed if plasma defocusing or strong medium effects become important.
 
-6. **Later: replace surrogate dipole with SFA/Lewenstein or lookup tables**  
+6. **Later: replace surrogate dipole with SFA / Lewenstein or lookup tables**  
    This would make spectral and phase trends more physically predictive.
 
 ## Repository structure
